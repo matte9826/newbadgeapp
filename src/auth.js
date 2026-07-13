@@ -2,15 +2,23 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { DATA_DIR, isServerless } from "./paths.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SECRET_FILE = path.join(__dirname, "..", "data", ".jwt_secret");
+const SECRET_FILE = path.join(DATA_DIR, ".jwt_secret");
 
 // Resolve a stable signing secret: prefer env, else a persisted random one so
 // sessions survive restarts without hard-coding anything into the repo.
 function resolveSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (isServerless) {
+    // On serverless there is no stable per-instance disk, so a generated secret
+    // would differ between instances and invalidate every session. Require an
+    // explicit JWT_SECRET so logins actually work across requests.
+    console.warn(
+      "[avvio] JWT_SECRET non impostata: su Vercel imposta una JWT_SECRET nelle " +
+        "Environment Variables, altrimenti gli accessi non restano validi tra le richieste."
+    );
+  }
   try {
     return fs.readFileSync(SECRET_FILE, "utf8").trim();
   } catch {

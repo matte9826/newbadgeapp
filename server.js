@@ -33,10 +33,15 @@ const COMPANY_NAME = process.env.COMPANY_NAME || "Presenze Cantieri";
 const ADMIN_LOCK_MINUTES = 15;
 const ADMIN_MAX_ATTEMPTS = 3;
 
-seedAdmin({
-  username: process.env.ADMIN_USERNAME,
-  password: process.env.ADMIN_PASSWORD,
-});
+try {
+  seedAdmin({
+    username: process.env.ADMIN_USERNAME,
+    password: process.env.ADMIN_PASSWORD,
+  });
+} catch (err) {
+  // Never let admin seeding take down the whole app on boot.
+  console.error("[avvio] seedAdmin non riuscito:", err.message);
+}
 
 const app = express();
 app.set("trust proxy", 1);
@@ -527,9 +532,16 @@ app.get("/", (req, res) => res.redirect("/user"));
 
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`${COMPANY_NAME} — Presenze Cantieri`);
-  console.log(`  Dipendenti (telefono):  http://localhost:${PORT}/user`);
-  console.log(`  Admin (pc):             http://localhost:${PORT}/admin`);
-});
+// On Vercel (and other serverless hosts) the platform invokes the exported app
+// as a function handler — we must NOT open a long-lived listening socket there.
+// Locally we start a normal HTTP server.
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`${COMPANY_NAME} — Presenze Cantieri`);
+    console.log(`  Dipendenti (telefono):  http://localhost:${PORT}/user`);
+    console.log(`  Admin (pc):             http://localhost:${PORT}/admin`);
+  });
+}
+
+export default app;

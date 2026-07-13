@@ -1,12 +1,7 @@
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
-import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "..", "data");
-fs.mkdirSync(DATA_DIR, { recursive: true });
+import { DATA_DIR } from "./paths.js";
 
 export const db = new Database(path.join(DATA_DIR, "presenze.db"));
 db.pragma("journal_mode = WAL");
@@ -66,7 +61,14 @@ export function nameKey(first, last) {
  */
 export function seedAdmin({ username, password }) {
   if (!username || !password) {
-    throw new Error("ADMIN_USERNAME and ADMIN_PASSWORD must be set in .env");
+    // Don't crash the whole app if the admin credentials aren't configured —
+    // just leave admin login disabled and let the rest of the site load.
+    console.warn(
+      "[avvio] ADMIN_USERNAME/ADMIN_PASSWORD non impostate: l'accesso admin resta " +
+        "disattivato finché non le configuri (in locale nel file .env, su Vercel " +
+        "nelle Environment Variables del progetto)."
+    );
+    return;
   }
   const now = new Date().toISOString();
   const hash = bcrypt.hashSync(password, 12);

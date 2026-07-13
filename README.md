@@ -120,9 +120,34 @@ scripts/gen-icons.js   Genera le icone PWA segnaposto
 data/                  Database SQLite (non versionato)
 ```
 
-## Deploy
+## Deploy su Vercel
 
-Qualsiasi host Node (Render, Railway, Fly.io, un VPS…):
+L'app è pronta per Vercel: `api/index.js` espone l'app come funzione
+serverless e `vercel.json` instrada le richieste. **Devi però impostare le
+Environment Variables** nel progetto Vercel (Settings → Environment Variables),
+perché il file `.env` non viene caricato su Vercel:
+
+| Variabile | Valore |
+|---|---|
+| `ADMIN_USERNAME` | il tuo nome utente admin |
+| `ADMIN_PASSWORD` | la tua password admin |
+| `JWT_SECRET` | una stringa lunga e casuale (obbligatoria su Vercel) |
+| `COMPANY_NAME` | `The Secret Garden` |
+| `NODE_ENV` | `production` |
+
+Dopo aver salvato le variabili, fai un **Redeploy**.
+
+> ⚠️ **Persistenza dati.** Vercel è serverless: il filesystem è di sola lettura
+> tranne `/tmp`, che è temporaneo e non condiviso tra le istanze. Con queste
+> correzioni l'app **non va più in crash** e le pagine si aprono, ma su Vercel
+> **i dati salvati in SQLite non persistono** in modo affidabile (cantieri,
+> registrazioni e timbrature possono azzerarsi). Per un uso reale serve un
+> database esterno gestito, es. **Supabase (Postgres)** — è il passo successivo.
+
+## Deploy su un server Node (persistenza reale con SQLite)
+
+In alternativa a Vercel, su qualsiasi host con filesystem persistente
+(Render, Railway, Fly.io, un VPS…) SQLite funziona senza modifiche:
 
 1. Imposta le variabili d'ambiente (`ADMIN_USERNAME`, `ADMIN_PASSWORD`,
    `JWT_SECRET`, `NODE_ENV=production`, ecc.).
