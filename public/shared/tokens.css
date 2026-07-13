@@ -1,0 +1,274 @@
+/* =========================================================================
+   The Secret Garden — Presenze Cantieri
+   Design system: green used with intention on a base of light neutrals.
+   Shared tokens + base components for both the employee and admin apps.
+   ========================================================================= */
+
+:root {
+  /* Brand palette (from the functional spec) */
+  --green: #16a34a;         /* primary — action, "in servizio" */
+  --green-700: #15803d;     /* pressed / hover / outlines */
+  --green-800: #116631;
+  --green-50: #dcfce7;      /* confirmations, "dentro" badges */
+  --green-100: #bbf7d0;
+  --bg: #f6f8f7;            /* neutral page background */
+  --surface: #ffffff;
+  --ink: #0f1a14;          /* primary text */
+  --ink-2: #3f5147;        /* secondary text */
+  --ink-3: #6b7c73;        /* muted text */
+  --line: #e2e8e5;         /* thin borders & dividers */
+  --line-2: #eef2f0;
+  --danger: #c0392b;
+  --danger-bg: #fdecea;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+
+  /* Typography — one modern, highly legible sans; hierarchy from weight/scale */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif;
+  --fs-xs: 0.78rem;
+  --fs-sm: 0.9rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.18rem;
+  --fs-xl: 1.5rem;
+  --fs-2xl: 2rem;
+  --fs-3xl: 2.7rem;
+
+  /* Soft corners */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-full: 999px;
+
+  /* Depth from light shadows, not heavy borders */
+  --sh-sm: 0 1px 2px rgba(15, 26, 20, 0.05);
+  --sh-md: 0 4px 14px rgba(15, 26, 20, 0.07);
+  --sh-lg: 0 12px 34px rgba(15, 26, 20, 0.1);
+  --sh-green: 0 10px 26px rgba(22, 163, 74, 0.32);
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  --maxw: 1200px;
+  --ease: cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 { margin: 0; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; }
+p { margin: 0; }
+button { font-family: inherit; }
+a { color: var(--green-700); }
+
+/* ---------------- Logo / brand ---------------- */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ink);
+  user-select: none;
+}
+.brand__mark {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: block;
+}
+.brand__name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.brand__name b {
+  font-size: 0.98rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+.brand__name span {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+/* ---------------- Buttons ---------------- */
+.btn {
+  --_bg: var(--green);
+  --_fg: #fff;
+  appearance: none;
+  border: 1px solid transparent;
+  background: var(--_bg);
+  color: var(--_fg);
+  font-size: var(--fs-md);
+  font-weight: 650;
+  padding: 13px 20px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: transform 0.12s var(--ease), background 0.15s var(--ease),
+    box-shadow 0.15s var(--ease), border-color 0.15s var(--ease);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1.1;
+}
+.btn:hover { background: var(--green-700); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 3px solid var(--green-100); outline-offset: 2px; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn--block { width: 100%; }
+.btn--lg { padding: 16px 24px; font-size: var(--fs-lg); border-radius: var(--r-lg); }
+.btn--ghost {
+  --_bg: transparent;
+  --_fg: var(--green-700);
+  border-color: var(--line);
+  background: var(--surface);
+}
+.btn--ghost:hover { background: var(--green-50); border-color: var(--green-100); }
+.btn--outline {
+  --_bg: var(--surface);
+  --_fg: var(--green-700);
+  border-color: var(--green);
+}
+.btn--outline:hover { background: var(--green-50); }
+.btn--subtle {
+  --_bg: var(--line-2);
+  --_fg: var(--ink);
+}
+.btn--subtle:hover { background: var(--line); }
+.btn--danger { --_bg: var(--danger); }
+.btn--danger:hover { background: #a5342a; }
+
+/* ---------------- Cards ---------------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-sm);
+}
+
+/* ---------------- Inputs ---------------- */
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.input {
+  width: 100%;
+  padding: 13px 15px;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-md);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.13);
+}
+.input::placeholder { color: var(--ink-3); }
+select.input { appearance: none; background-image:
+  url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7c73' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat; background-position: right 14px center; padding-right: 40px; }
+
+/* ---------------- Badges ---------------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  letter-spacing: 0.01em;
+}
+.badge--in { background: var(--green-50); color: var(--green-800); }
+.badge--open { background: var(--warn-bg); color: var(--warn); }
+.badge--closed { background: var(--line-2); color: var(--ink-3); }
+.badge--dot::before {
+  content: "";
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+}
+
+/* ---------------- Toast ---------------- */
+.toast-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(440px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  background: var(--ink);
+  color: #fff;
+  padding: 13px 16px;
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-lg);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  animation: toastIn 0.28s var(--ease);
+}
+.toast--ok { background: var(--green-700); }
+.toast--err { background: var(--danger); }
+.toast--warn { background: var(--warn); }
+.toast b { font-weight: 750; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------------- Utilities ---------------- */
+.muted { color: var(--ink-3); }
+.spinner {
+  width: 18px; height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.spinner--ink { border-color: rgba(15,26,20,0.2); border-top-color: var(--green); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
