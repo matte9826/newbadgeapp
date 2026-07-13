@@ -6,9 +6,10 @@ e monitorare le ore lavorate. Due punti d'ingresso distinti:
 - **Dipendenti** (ottimizzato per telefono, installabile come app): `/user`
 - **Admin / responsabile HR** (ottimizzato per PC): `/admin`
 
-Costruita con Node.js + Express + SQLite. Nessun servizio esterno: il database
-è un singolo file, l'orario è preso dal server (fuso Italia con ora legale
-automatica) e la verifica GPS avviene lato server.
+Costruita con Node.js + Express + **Postgres (Supabase)**. L'orario è preso dal
+server (fuso Italia con ora legale automatica) e la verifica GPS avviene lato
+server. Se `DATABASE_URL` non è impostata, l'app si avvia comunque e mostra le
+pagine, ma le azioni sui dati rispondono "database non configurato".
 
 ---
 
@@ -38,13 +39,31 @@ Il file `.env` **non** viene versionato (è in `.gitignore`). Contiene:
 | Variabile | Descrizione |
 |---|---|
 | `COMPANY_NAME` | Nome azienda mostrato nell'interfaccia (attuale: *The Secret Garden*). |
+| `DATABASE_URL` | Connection string Postgres/Supabase (Connection Pooling, porta 6543). Vuota = app senza database. |
+| `DATABASE_SSL` | `disable` solo per un Postgres locale senza TLS. Vuota per Supabase. |
 | `ADMIN_USERNAME` | Nome utente dell'unico admin. |
 | `ADMIN_PASSWORD` | Password admin. **Mai salvata in chiaro**: all'avvio viene cifrata (bcrypt) e usata per creare/aggiornare l'account admin. |
-| `JWT_SECRET` | Chiave per firmare i cookie di sessione. Se vuota, ne viene generata e salvata una in `data/.jwt_secret`. |
-| `PORT` | Porta del server (default 3000). |
+| `JWT_SECRET` | Chiave per firmare i cookie di sessione. Su Vercel è **obbligatoria**. |
+| `PORT` | Porta del server in locale (default 3000). |
 | `NODE_ENV` | Imposta `production` in produzione (attiva i cookie `Secure` su HTTPS). |
 
-> Per cambiare la password admin: modifica `ADMIN_PASSWORD` in `.env` e riavvia.
+> Per cambiare la password admin: modifica `ADMIN_PASSWORD` e riavvia (o Redeploy su Vercel).
+
+## Configurare Supabase (database)
+
+1. Crea un account su **supabase.com** → **New project**. Scegli una password
+   per il database (annotala) e una region (es. *West EU / Frankfurt*).
+2. Quando il progetto è pronto, apri **Connect** (in alto) → sezione
+   **Connection string** → scheda **Transaction** (Connection Pooling, porta
+   `6543`). Copia la URI: è simile a
+   `postgresql://postgres.<ref>:[YOUR-PASSWORD]@aws-0-...pooler.supabase.com:6543/postgres`.
+   Sostituisci `[YOUR-PASSWORD]` con la password del punto 1.
+   ⚠️ Usa la stringa del **pooler** (non la "Direct connection"): su Vercel serve
+   quella, perché la connessione diretta è solo IPv6.
+3. Le tabelle vengono **create automaticamente** al primo avvio dell'app. In
+   alternativa puoi eseguire `schema.sql` dal **SQL Editor** di Supabase.
+4. Imposta `DATABASE_URL` con quella stringa (in locale nel `.env`, su Vercel
+   nelle Environment Variables) e fai ripartire l'app / **Redeploy**.
 
 ## Funzionalità
 
@@ -105,10 +124,14 @@ aziendale:
 ## Struttura del progetto
 
 ```
-server.js              Server Express + tutte le API
+server.js              Server Express + tutte le API (async)
+api/index.js           Entry point serverless per Vercel (esporta l'app)
+vercel.json            Rewrites (pagine + /api) per Vercel
+schema.sql             Schema Postgres (facoltativo: creato in automatico)
 src/
-  db.js                Schema SQLite + seed admin
+  db.js                Client Postgres (pg) + schema + seed admin
   auth.js              Sessioni JWT (cookie httpOnly) + controllo ruoli
+  paths.js             Cartella scrivibile (locale ./data, serverless /tmp)
   time.js              Fuso Italia, calcolo ore, confini giorno/mese (luxon)
   geo.js               Distanza GPS (haversine) e verifica raggio
 public/
@@ -117,7 +140,6 @@ public/
   admin/               Console admin (desktop)
   manifest.webmanifest, sw.js   PWA installabile
 scripts/gen-icons.js   Genera le icone PWA segnaposto
-data/                  Database SQLite (non versionato)
 ```
 
 ## Deploy su Vercel
@@ -129,6 +151,7 @@ perché il file `.env` non viene caricato su Vercel:
 
 | Variabile | Valore |
 |---|---|
+| `DATABASE_URL` | connection string Supabase (pooler, porta 6543) — vedi sopra |
 | `ADMIN_USERNAME` | il tuo nome utente admin |
 | `ADMIN_PASSWORD` | la tua password admin |
 | `JWT_SECRET` | una stringa lunga e casuale (obbligatoria su Vercel) |
@@ -137,19 +160,13 @@ perché il file `.env` non viene caricato su Vercel:
 
 Dopo aver salvato le variabili, fai un **Redeploy**.
 
-> ⚠️ **Persistenza dati.** Vercel è serverless: il filesystem è di sola lettura
-> tranne `/tmp`, che è temporaneo e non condiviso tra le istanze. Con queste
-> correzioni l'app **non va più in crash** e le pagine si aprono, ma su Vercel
-> **i dati salvati in SQLite non persistono** in modo affidabile (cantieri,
-> registrazioni e timbrature possono azzerarsi). Per un uso reale serve un
-> database esterno gestito, es. **Supabase (Postgres)** — è il passo successivo.
+> ✅ **Persistenza dati.** Con `DATABASE_URL` collegata a Supabase i dati
+> (cantieri, registrazioni, timbrature) vengono salvati in modo permanente in
+> Postgres — non più su file effimero. Il codice usa `pg` (JavaScript puro),
+> quindi non ci sono binari nativi da compilare su Vercel.
 
-## Deploy su un server Node (persistenza reale con SQLite)
+## Deploy su un server Node
 
-In alternativa a Vercel, su qualsiasi host con filesystem persistente
-(Render, Railway, Fly.io, un VPS…) SQLite funziona senza modifiche:
-
-1. Imposta le variabili d'ambiente (`ADMIN_USERNAME`, `ADMIN_PASSWORD`,
-   `JWT_SECRET`, `NODE_ENV=production`, ecc.).
-2. `npm install && npm start`.
-3. Servi dietro HTTPS. La cartella `data/` deve essere su storage persistente.
+Su qualsiasi host (Render, Railway, Fly.io, un VPS…): imposta le stesse
+variabili d'ambiente (inclusa `DATABASE_URL`), poi `npm install && npm start`,
+servendo dietro HTTPS.

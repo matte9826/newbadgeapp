@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DateTime } from "luxon";
 
-import { db, seedAdmin, nameKey } from "./src/db.js";
+import { q, one, seedAdmin, nameKey, initSchema } from "./src/db.js";
 import {
   issueSession,
   clearSession,
@@ -33,15 +33,13 @@ const COMPANY_NAME = process.env.COMPANY_NAME || "Presenze Cantieri";
 const ADMIN_LOCK_MINUTES = 15;
 const ADMIN_MAX_ATTEMPTS = 3;
 
-try {
-  seedAdmin({
-    username: process.env.ADMIN_USERNAME,
-    password: process.env.ADMIN_PASSWORD,
-  });
-} catch (err) {
-  // Never let admin seeding take down the whole app on boot.
-  console.error("[avvio] seedAdmin non riuscito:", err.message);
-}
+// Prepare the database (schema + admin) once per cold start. Never let a DB
+// hiccup take the whole app down on boot — pages must still load.
+await initSchema().catch((e) => console.error("[avvio] initSchema:", e.message));
+await seedAdmin({
+  username: process.env.ADMIN_USERNAME,
+  password: process.env.ADMIN_PASSWORD,
+}).catch((e) => console.error("[avvio] seedAdmin:", e.message));
 
 const app = express();
 app.set("trust proxy", 1);
@@ -52,6 +50,20 @@ app.use(cookieParser());
 const clean = (s) => (typeof s === "string" ? s.trim() : "");
 const isNum = (n) => typeof n === "number" && Number.isFinite(n);
 
+// Wrap an async route so DB/unknown errors become clean JSON instead of a crash.
+function h(fn) {
+  return (req, res) =>
+    Promise.resolve(fn(req, res)).catch((err) => {
+      if (err && err.code === "DB_NOT_CONFIGURED") {
+        return res.status(503).json({
+          error: "Database non ancora configurato. Riprova più tardi.",
+        });
+      }
+      console.error("[api]", req.method, req.originalUrl, "-", err?.message);
+      if (!res.headersSent) res.status(500).json({ error: "Errore del server. Riprova." });
+    });
+}
+
 function hms(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds));
   const h = Math.floor(s / 3600);
@@ -61,16 +73,12 @@ function hms(totalSeconds) {
 }
 const decimalHours = (sec) => Math.round((sec / 3600) * 100) / 100;
 
-function attendanceSeconds(row) {
-  return row.exit_at ? secondsBetween(row.entry_at, row.exit_at) : 0;
-}
-
 // ================= AUTH =================
 
-app.post("/api/admin/login", (req, res) => {
+app.post("/api/admin/login", h(async (req, res) => {
   const username = clean(req.body?.username);
   const password = req.body?.password ?? "";
-  const admin = db.prepare("SELECT * FROM admins WHERE username = ?").get(username);
+  const admin = await one("SELECT * FROM admins WHERE username = $1", [username]);
 
   // Uniform response for unknown user to avoid leaking which field is wrong,
   // but still honour the lockout when the username matches.
@@ -91,30 +99,29 @@ app.post("/api/admin/login", (req, res) => {
 
   const ok = bcrypt.compareSync(password, admin.password_hash);
   if (!ok) {
-    let attempts = admin.failed_attempts + 1;
+    const attempts = admin.failed_attempts + 1;
     if (attempts >= ADMIN_MAX_ATTEMPTS) {
       const until = DateTime.utc().plus({ minutes: ADMIN_LOCK_MINUTES }).toISO();
-      db.prepare("UPDATE admins SET failed_attempts = 0, locked_until = ? WHERE id = ?")
-        .run(until, admin.id);
+      await q("UPDATE admins SET failed_attempts = 0, locked_until = $1 WHERE id = $2", [
+        until,
+        admin.id,
+      ]);
       return res.status(423).json({
         error: `Troppi tentativi falliti. Account bloccato per ${ADMIN_LOCK_MINUTES} minuti.`,
         lockedMinutes: ADMIN_LOCK_MINUTES,
       });
     }
-    db.prepare("UPDATE admins SET failed_attempts = ? WHERE id = ?").run(attempts, admin.id);
+    await q("UPDATE admins SET failed_attempts = $1 WHERE id = $2", [attempts, admin.id]);
     const left = ADMIN_MAX_ATTEMPTS - attempts;
-    return res.status(401).json({
-      error: `Credenziali non valide. Tentativi rimasti: ${left}.`,
-    });
+    return res.status(401).json({ error: `Credenziali non valide. Tentativi rimasti: ${left}.` });
   }
 
-  db.prepare("UPDATE admins SET failed_attempts = 0, locked_until = NULL WHERE id = ?")
-    .run(admin.id);
+  await q("UPDATE admins SET failed_attempts = 0, locked_until = NULL WHERE id = $1", [admin.id]);
   issueSession(res, { role: "admin", uid: admin.id, name: admin.username });
   res.json({ ok: true, role: "admin", username: admin.username });
-});
+}));
 
-app.post("/api/user/register", (req, res) => {
+app.post("/api/user/register", h(async (req, res) => {
   const first = clean(req.body?.first);
   const last = clean(req.body?.last);
   const password = req.body?.password ?? "";
@@ -123,41 +130,37 @@ app.post("/api/user/register", (req, res) => {
     return res.status(400).json({ error: "La password deve avere almeno 4 caratteri." });
 
   const key = nameKey(first, last);
-  const exists = db.prepare("SELECT id FROM employees WHERE name_key = ?").get(key);
+  const exists = await one("SELECT id FROM employees WHERE name_key = $1", [key]);
   if (exists)
     return res.status(409).json({
       error: "Esiste già un account con questo nome e cognome. Accedi o reimposta la password.",
     });
 
   const hash = bcrypt.hashSync(String(password), 12);
-  const info = db
-    .prepare(
-      "INSERT INTO employees (first_name, last_name, name_key, password_hash, created_at) VALUES (?, ?, ?, ?, ?)"
-    )
-    .run(first, last, key, hash, nowIso());
-  issueSession(res, { role: "user", uid: info.lastInsertRowid, name: `${first} ${last}` });
+  const row = await one(
+    `INSERT INTO employees (first_name, last_name, name_key, password_hash, created_at)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [first, last, key, hash, nowIso()]
+  );
+  issueSession(res, { role: "user", uid: row.id, name: `${first} ${last}` });
   res.json({ ok: true, role: "user", firstName: first, lastName: last });
-});
+}));
 
-app.post("/api/user/login", (req, res) => {
+app.post("/api/user/login", h(async (req, res) => {
   const first = clean(req.body?.first);
   const last = clean(req.body?.last);
   const password = req.body?.password ?? "";
   if (!first || !last) return res.status(400).json({ error: "Inserisci nome e cognome." });
 
-  const emp = db.prepare("SELECT * FROM employees WHERE name_key = ?").get(nameKey(first, last));
+  const emp = await one("SELECT * FROM employees WHERE name_key = $1", [nameKey(first, last)]);
   if (!emp || !bcrypt.compareSync(String(password), emp.password_hash)) {
     return res.status(401).json({ error: "Nome, cognome o password non corretti." });
   }
-  issueSession(res, {
-    role: "user",
-    uid: emp.id,
-    name: `${emp.first_name} ${emp.last_name}`,
-  });
+  issueSession(res, { role: "user", uid: emp.id, name: `${emp.first_name} ${emp.last_name}` });
   res.json({ ok: true, role: "user", firstName: emp.first_name, lastName: emp.last_name });
-});
+}));
 
-app.post("/api/user/reset-password", (req, res) => {
+app.post("/api/user/reset-password", h(async (req, res) => {
   const first = clean(req.body?.first);
   const last = clean(req.body?.last);
   const newPassword = req.body?.newPassword ?? "";
@@ -165,14 +168,16 @@ app.post("/api/user/reset-password", (req, res) => {
   if (String(newPassword).length < 4)
     return res.status(400).json({ error: "La nuova password deve avere almeno 4 caratteri." });
 
-  const emp = db.prepare("SELECT * FROM employees WHERE name_key = ?").get(nameKey(first, last));
+  const emp = await one("SELECT id FROM employees WHERE name_key = $1", [nameKey(first, last)]);
   if (!emp)
     return res.status(404).json({ error: "Nessun account trovato con questo nome e cognome." });
 
-  db.prepare("UPDATE employees SET password_hash = ? WHERE id = ?")
-    .run(bcrypt.hashSync(String(newPassword), 12), emp.id);
+  await q("UPDATE employees SET password_hash = $1 WHERE id = $2", [
+    bcrypt.hashSync(String(newPassword), 12),
+    emp.id,
+  ]);
   res.json({ ok: true });
-});
+}));
 
 app.post("/api/logout", (req, res) => {
   clearSession(res);
@@ -191,26 +196,25 @@ app.get("/api/me", (req, res) => {
 
 // ================= EMPLOYEE =================
 
-app.get("/api/sites/active", requireUser, (req, res) => {
-  const sites = db
-    .prepare("SELECT id, name FROM sites WHERE status = 'active' ORDER BY name COLLATE NOCASE")
-    .all();
+app.get("/api/sites/active", requireUser, h(async (req, res) => {
+  const sites = await q(
+    "SELECT id, name FROM sites WHERE status = 'active' ORDER BY LOWER(name)"
+  );
   res.json({ sites });
-});
+}));
 
-app.get("/api/attendance/current", requireUser, (req, res) => {
-  const row = db
-    .prepare(
-      `SELECT a.id, a.site_id, a.entry_at, s.name AS site_name
+app.get("/api/attendance/current", requireUser, h(async (req, res) => {
+  const row = await one(
+    `SELECT a.id, a.site_id, a.entry_at, s.name AS site_name
        FROM attendances a JOIN sites s ON s.id = a.site_id
-       WHERE a.employee_id = ? AND a.exit_at IS NULL
-       ORDER BY a.entry_at DESC LIMIT 1`
-    )
-    .get(req.session.uid);
+       WHERE a.employee_id = $1 AND a.exit_at IS NULL
+       ORDER BY a.entry_at DESC LIMIT 1`,
+    [req.session.uid]
+  );
   res.json({ current: row || null, serverNow: nowIso() });
-});
+}));
 
-app.post("/api/attendance/clock-in", requireUser, (req, res) => {
+app.post("/api/attendance/clock-in", requireUser, h(async (req, res) => {
   const siteId = Number(req.body?.site_id);
   const lat = Number(req.body?.lat);
   const lng = Number(req.body?.lng);
@@ -222,9 +226,10 @@ app.post("/api/attendance/clock-in", requireUser, (req, res) => {
     });
   }
 
-  const open = db
-    .prepare("SELECT id FROM attendances WHERE employee_id = ? AND exit_at IS NULL")
-    .get(req.session.uid);
+  const open = await one(
+    "SELECT id FROM attendances WHERE employee_id = $1 AND exit_at IS NULL",
+    [req.session.uid]
+  );
   if (open) {
     return res.status(409).json({
       error: "Hai già un turno aperto. Timbra l'uscita prima di iniziarne un altro.",
@@ -232,7 +237,7 @@ app.post("/api/attendance/clock-in", requireUser, (req, res) => {
     });
   }
 
-  const site = db.prepare("SELECT * FROM sites WHERE id = ?").get(siteId);
+  const site = await one("SELECT * FROM sites WHERE id = $1", [siteId]);
   if (!site || site.status !== "active") {
     return res.status(400).json({ error: "Cantiere non disponibile." });
   }
@@ -248,29 +253,28 @@ app.post("/api/attendance/clock-in", requireUser, (req, res) => {
   }
 
   const entry = nowIso();
-  const info = db
-    .prepare(
-      "INSERT INTO attendances (employee_id, site_id, entry_at, created_at) VALUES (?, ?, ?, ?)"
-    )
-    .run(req.session.uid, siteId, entry, entry);
+  const row = await one(
+    `INSERT INTO attendances (employee_id, site_id, entry_at, created_at)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
+    [req.session.uid, siteId, entry, entry]
+  );
   res.json({
     ok: true,
-    current: { id: info.lastInsertRowid, site_id: siteId, site_name: site.name, entry_at: entry },
+    current: { id: row.id, site_id: siteId, site_name: site.name, entry_at: entry },
     serverNow: entry,
   });
-});
+}));
 
-app.post("/api/attendance/clock-out", requireUser, (req, res) => {
-  const open = db
-    .prepare(
-      `SELECT a.*, s.name AS site_name FROM attendances a JOIN sites s ON s.id = a.site_id
-       WHERE a.employee_id = ? AND a.exit_at IS NULL ORDER BY a.entry_at DESC LIMIT 1`
-    )
-    .get(req.session.uid);
+app.post("/api/attendance/clock-out", requireUser, h(async (req, res) => {
+  const open = await one(
+    `SELECT a.*, s.name AS site_name FROM attendances a JOIN sites s ON s.id = a.site_id
+       WHERE a.employee_id = $1 AND a.exit_at IS NULL ORDER BY a.entry_at DESC LIMIT 1`,
+    [req.session.uid]
+  );
   if (!open) return res.status(409).json({ error: "Nessun turno aperto da chiudere." });
 
   const exit = nowIso();
-  db.prepare("UPDATE attendances SET exit_at = ? WHERE id = ?").run(exit, open.id);
+  await q("UPDATE attendances SET exit_at = $1 WHERE id = $2", [exit, open.id]);
   res.json({
     ok: true,
     siteName: open.site_name,
@@ -278,17 +282,16 @@ app.post("/api/attendance/clock-out", requireUser, (req, res) => {
     exit_at: exit,
     seconds: secondsBetween(open.entry_at, exit),
   });
-});
+}));
 
-app.get("/api/account/summary", requireUser, (req, res) => {
-  const emp = db.prepare("SELECT * FROM employees WHERE id = ?").get(req.session.uid);
+app.get("/api/account/summary", requireUser, h(async (req, res) => {
+  const emp = await one("SELECT * FROM employees WHERE id = $1", [req.session.uid]);
   const { startIso, endIso } = monthBoundsUtc();
-  const rows = db
-    .prepare(
-      `SELECT entry_at, exit_at FROM attendances
-       WHERE employee_id = ? AND exit_at IS NOT NULL AND entry_at >= ? AND entry_at < ?`
-    )
-    .all(req.session.uid, startIso, endIso);
+  const rows = await q(
+    `SELECT entry_at, exit_at FROM attendances
+       WHERE employee_id = $1 AND exit_at IS NOT NULL AND entry_at >= $2 AND entry_at < $3`,
+    [req.session.uid, startIso, endIso]
+  );
   const seconds = rows.reduce((acc, r) => acc + secondsBetween(r.entry_at, r.exit_at), 0);
   const monthLabel = DateTime.now().setZone(ZONE).setLocale("it").toFormat("LLLL yyyy");
   res.json({
@@ -300,14 +303,14 @@ app.get("/api/account/summary", requireUser, (req, res) => {
     monthLabel: monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1),
     shifts: rows.length,
   });
-});
+}));
 
 // ================= ADMIN =================
 
-app.get("/api/admin/sites", requireAdmin, (req, res) => {
-  const sites = db.prepare("SELECT * FROM sites ORDER BY status, name COLLATE NOCASE").all();
+app.get("/api/admin/sites", requireAdmin, h(async (req, res) => {
+  const sites = await q("SELECT * FROM sites ORDER BY status, LOWER(name)");
   res.json({ sites });
-});
+}));
 
 function validateSite(body) {
   const name = clean(body?.name);
@@ -323,46 +326,46 @@ function validateSite(body) {
   return { value: { name, lat, lng, radius, status } };
 }
 
-app.post("/api/admin/sites", requireAdmin, (req, res) => {
+app.post("/api/admin/sites", requireAdmin, h(async (req, res) => {
   const v = validateSite(req.body);
   if (v.error) return res.status(400).json({ error: v.error });
   const { name, lat, lng, radius, status } = v.value;
-  const info = db
-    .prepare(
-      "INSERT INTO sites (name, lat, lng, radius_m, status, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-    )
-    .run(name, lat, lng, radius, status, nowIso());
-  res.json({ ok: true, id: info.lastInsertRowid });
-});
+  const row = await one(
+    `INSERT INTO sites (name, lat, lng, radius_m, status, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [name, lat, lng, radius, status, nowIso()]
+  );
+  res.json({ ok: true, id: row.id });
+}));
 
-app.put("/api/admin/sites/:id", requireAdmin, (req, res) => {
+app.put("/api/admin/sites/:id", requireAdmin, h(async (req, res) => {
   const id = Number(req.params.id);
-  const exists = db.prepare("SELECT id FROM sites WHERE id = ?").get(id);
+  const exists = await one("SELECT id FROM sites WHERE id = $1", [id]);
   if (!exists) return res.status(404).json({ error: "Cantiere non trovato." });
   const v = validateSite(req.body);
   if (v.error) return res.status(400).json({ error: v.error });
   const { name, lat, lng, radius, status } = v.value;
-  db.prepare(
-    "UPDATE sites SET name = ?, lat = ?, lng = ?, radius_m = ?, status = ? WHERE id = ?"
-  ).run(name, lat, lng, radius, status, id);
+  await q(
+    "UPDATE sites SET name = $1, lat = $2, lng = $3, radius_m = $4, status = $5 WHERE id = $6",
+    [name, lat, lng, radius, status, id]
+  );
   res.json({ ok: true });
-});
+}));
 
 // Daily view: everyone who clocked in on a given Rome-local day.
-app.get("/api/admin/day", requireAdmin, (req, res) => {
+app.get("/api/admin/day", requireAdmin, h(async (req, res) => {
   const date = clean(req.query?.date) || todayRome();
   const { startIso, endIso } = dayBoundsUtc(date);
-  const rows = db
-    .prepare(
-      `SELECT a.id, a.entry_at, a.exit_at,
-              e.first_name, e.last_name, s.name AS site_name
+  const rows = await q(
+    `SELECT a.id, a.entry_at, a.exit_at,
+            e.first_name, e.last_name, s.name AS site_name
        FROM attendances a
        JOIN employees e ON e.id = a.employee_id
        JOIN sites s ON s.id = a.site_id
-       WHERE a.entry_at >= ? AND a.entry_at < ?
-       ORDER BY a.entry_at ASC`
-    )
-    .all(startIso, endIso);
+       WHERE a.entry_at >= $1 AND a.entry_at < $2
+       ORDER BY a.entry_at ASC`,
+    [startIso, endIso]
+  );
 
   const entries = rows.map((r) => {
     const sec = r.exit_at ? secondsBetween(r.entry_at, r.exit_at) : 0;
@@ -379,10 +382,10 @@ app.get("/api/admin/day", requireAdmin, (req, res) => {
   });
   const totalSeconds = entries.reduce((a, e) => a + e.seconds, 0);
   res.json({ date, entries, totalSeconds, totalHms: hms(totalSeconds), serverToday: todayRome() });
-});
+}));
 
 // Dashboard aggregates over a Rome-local date range (default: current month).
-app.get("/api/admin/dashboard", requireAdmin, (req, res) => {
+app.get("/api/admin/dashboard", requireAdmin, h(async (req, res) => {
   let startIso, endIso, from, to;
   if (clean(req.query?.from) && clean(req.query?.to)) {
     from = clean(req.query.from);
@@ -394,15 +397,14 @@ app.get("/api/admin/dashboard", requireAdmin, (req, res) => {
     to = romeDate(DateTime.fromISO(endIso).minus({ days: 1 }).toISO());
   }
 
-  const rows = db
-    .prepare(
-      `SELECT a.entry_at, a.exit_at, e.first_name, e.last_name, s.name AS site_name
+  const rows = await q(
+    `SELECT a.entry_at, a.exit_at, e.first_name, e.last_name, s.name AS site_name
        FROM attendances a
        JOIN employees e ON e.id = a.employee_id
        JOIN sites s ON s.id = a.site_id
-       WHERE a.entry_at >= ? AND a.entry_at < ?`
-    )
-    .all(startIso, endIso);
+       WHERE a.entry_at >= $1 AND a.entry_at < $2`,
+    [startIso, endIso]
+  );
 
   const byEmp = new Map();
   const bySite = new Map();
@@ -447,10 +449,10 @@ app.get("/api/admin/dashboard", requireAdmin, (req, res) => {
     perSite: fmt([...bySite.values()]),
     perDay,
   });
-});
+}));
 
 // CSV export, Google Sheets friendly (UTF-8 BOM + comma separated).
-app.get("/api/admin/export", requireAdmin, (req, res) => {
+app.get("/api/admin/export", requireAdmin, h(async (req, res) => {
   let startIso, endIso, label;
   if (clean(req.query?.from) && clean(req.query?.to)) {
     ({ startIso, endIso } = rangeBoundsUtc(clean(req.query.from), clean(req.query.to)));
@@ -461,16 +463,15 @@ app.get("/api/admin/export", requireAdmin, (req, res) => {
     label = date;
   }
 
-  const rows = db
-    .prepare(
-      `SELECT a.entry_at, a.exit_at, e.first_name, e.last_name, s.name AS site_name
+  const rows = await q(
+    `SELECT a.entry_at, a.exit_at, e.first_name, e.last_name, s.name AS site_name
        FROM attendances a
        JOIN employees e ON e.id = a.employee_id
        JOIN sites s ON s.id = a.site_id
-       WHERE a.entry_at >= ? AND a.entry_at < ?
-       ORDER BY a.entry_at ASC`
-    )
-    .all(startIso, endIso);
+       WHERE a.entry_at >= $1 AND a.entry_at < $2
+       ORDER BY a.entry_at ASC`,
+    [startIso, endIso]
+  );
 
   const esc = (val) => {
     const s = String(val ?? "");
@@ -508,7 +509,7 @@ app.get("/api/admin/export", requireAdmin, (req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="presenze_${label}.csv"`);
   res.send(csv);
-});
+}));
 
 // ================= STATIC + PAGES =================
 
@@ -534,7 +535,6 @@ app.use((req, res) => res.status(404).json({ error: "Not found" }));
 
 // On Vercel (and other serverless hosts) the platform invokes the exported app
 // as a function handler — we must NOT open a long-lived listening socket there.
-// Locally we start a normal HTTP server.
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
