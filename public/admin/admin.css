@@ -133,6 +133,14 @@ table.data tbody tr:hover { background: #fafcfb; }
 .t-mono { font-variant-numeric: tabular-nums; }
 .t-right { text-align: right; }
 
+.icon-btn-sm {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink-3); cursor: pointer; transition: all .15s var(--ease);
+}
+.icon-btn-sm:hover { background: var(--danger-bg); border-color: #f3c9c3; color: var(--danger); }
+.icon-btn-sm:active { transform: scale(0.92); }
+
 .empty-row { text-align: center; padding: 48px 20px; color: var(--ink-3); }
 .empty-row svg { opacity: .4; margin-bottom: 10px; }
 

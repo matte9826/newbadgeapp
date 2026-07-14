@@ -16,6 +16,7 @@ const I = {
   users: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   pin: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
   search: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>`,
+  trash: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 5v6m4-6v6"/></svg>`,
   menu: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>`,
   empty: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V8l6-4 6 4v13"/></svg>`,
 };
@@ -267,6 +268,7 @@ async function loadDay() {
       <td class="t-mono">${e.entry}</td>
       <td class="t-mono">${e.exit ? e.exit : '<span class="badge badge--open badge--dot">In corso</span>'}</td>
       <td class="t-mono t-right t-strong">${e.hms ? e.hms : "—"}</td>
+      <td class="t-right"><button class="icon-btn-sm" data-del="${e.id}" title="Elimina timbratura" aria-label="Elimina timbratura">${I.trash}</button></td>
     </tr>`).join("");
 
   body.innerHTML = `
@@ -277,11 +279,51 @@ async function loadDay() {
     <div class="panel">
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>Dipendente</th><th>Cantiere</th><th>Entrata</th><th>Uscita</th><th class="t-right">Ore</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="5"><div class="empty-row">${I.empty}<div>Nessuna timbratura in questa data.</div></div></td></tr>`}</tbody>
+          <thead><tr><th>Dipendente</th><th>Cantiere</th><th>Entrata</th><th>Uscita</th><th class="t-right">Ore</th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="6"><div class="empty-row">${I.empty}<div>Nessuna timbratura in questa data.</div></div></td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
+
+  body.querySelectorAll("[data-del]").forEach((btn) =>
+    btn.addEventListener("click", () => deleteEntry(d.entries.find((e) => e.id === Number(btn.dataset.del))))
+  );
+}
+
+async function deleteEntry(entry) {
+  if (!entry) return;
+  const ok = await confirmDialog({
+    title: "Eliminare questa timbratura?",
+    message: `Stai per eliminare il turno di <b>${escapeHTML(entry.employee)}</b> — cantiere <b>${escapeHTML(entry.site)}</b> (entrata ${entry.entry}${entry.exit ? ", uscita " + entry.exit : ", ancora in corso"}).<br><br>Verrà rimosso <b>anche dal totale ore del dipendente</b>. L'operazione non è reversibile.`,
+    confirmLabel: "Elimina",
+    danger: true,
+  });
+  if (!ok) return;
+  const r = await api(`/api/admin/attendance/${entry.id}`, { method: "DELETE" });
+  if (r.ok) { toast("Timbratura eliminata.", "ok"); loadDay(); }
+  else toast(r.data?.error || "Eliminazione non riuscita.", "err");
+}
+
+// Reusable confirmation dialog → resolves to true/false.
+function confirmDialog({ title, message, confirmLabel = "Conferma", danger = false }) {
+  return new Promise((resolve) => {
+    const scrim = document.createElement("div");
+    scrim.className = "modal-scrim";
+    scrim.innerHTML = `
+      <div class="modal" style="max-width:440px" role="dialog" aria-modal="true">
+        <div class="modal__head"><h3>${escapeHTML(title)}</h3></div>
+        <div class="modal__body"><p class="muted" style="line-height:1.55">${message}</p></div>
+        <div class="modal__foot">
+          <button class="btn btn--subtle" id="c_no">Annulla</button>
+          <button class="btn ${danger ? "btn--danger" : ""}" id="c_yes">${escapeHTML(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(scrim);
+    const done = (v) => { scrim.remove(); resolve(v); };
+    scrim.querySelector("#c_no").addEventListener("click", () => done(false));
+    scrim.querySelector("#c_yes").addEventListener("click", () => done(true));
+    scrim.addEventListener("click", (e) => { if (e.target === scrim) done(false); });
+  });
 }
 function prettyDate(iso) {
   try { return new Date(iso + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); }

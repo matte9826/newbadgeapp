@@ -422,6 +422,18 @@ app.get("/api/admin/day", requireAdmin, h(async (req, res) => {
   res.json({ date, entries, totalSeconds, totalHms: hms(totalSeconds), serverToday: todayRome() });
 }));
 
+// Delete a single attendance (e.g. an accidental double clock-in). Since the
+// employee's monthly total is computed live from attendances, deleting the row
+// also removes it from that total automatically.
+app.delete("/api/admin/attendance/:id", requireAdmin, h(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: "Timbratura non valida." });
+  const existing = await one("SELECT id FROM attendances WHERE id = $1", [id]);
+  if (!existing) return res.status(404).json({ error: "Timbratura non trovata." });
+  await q("DELETE FROM attendances WHERE id = $1", [id]);
+  res.json({ ok: true });
+}));
+
 // Dashboard aggregates over a Rome-local date range (default: current month).
 app.get("/api/admin/dashboard", requireAdmin, h(async (req, res) => {
   let startIso, endIso, from, to;
