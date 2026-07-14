@@ -62,44 +62,46 @@ export function nameKey(first, last) {
 // Timestamps are stored as UTC ISO strings (TEXT), exactly as before, so all the
 // time logic in src/time.js keeps working unchanged. ISO-8601 UTC strings sort
 // and compare correctly, so range filters on entry_at stay valid.
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS admins (
-  id              BIGSERIAL PRIMARY KEY,
-  username        TEXT NOT NULL UNIQUE,
-  password_hash   TEXT NOT NULL,
-  failed_attempts INTEGER NOT NULL DEFAULT 0,
-  locked_until    TEXT,
-  created_at      TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS employees (
-  id            BIGSERIAL PRIMARY KEY,
-  first_name    TEXT NOT NULL,
-  last_name     TEXT NOT NULL,
-  name_key      TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  created_at    TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sites (
-  id         BIGSERIAL PRIMARY KEY,
-  name       TEXT NOT NULL,
-  lat        DOUBLE PRECISION NOT NULL,
-  lng        DOUBLE PRECISION NOT NULL,
-  radius_m   INTEGER NOT NULL DEFAULT 120,
-  status     TEXT NOT NULL DEFAULT 'active',
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS attendances (
-  id          BIGSERIAL PRIMARY KEY,
-  employee_id BIGINT NOT NULL REFERENCES employees(id),
-  site_id     BIGINT NOT NULL REFERENCES sites(id),
-  entry_at    TEXT NOT NULL,
-  exit_at     TEXT,
-  created_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_att_emp   ON attendances(employee_id);
-CREATE INDEX IF NOT EXISTS idx_att_entry ON attendances(entry_at);
-CREATE INDEX IF NOT EXISTS idx_att_open  ON attendances(employee_id, exit_at);
-`;
+// Each statement is run separately: some connection poolers reject
+// multi-statement queries, so we never rely on that.
+const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS admins (
+     id              BIGSERIAL PRIMARY KEY,
+     username        TEXT NOT NULL UNIQUE,
+     password_hash   TEXT NOT NULL,
+     failed_attempts INTEGER NOT NULL DEFAULT 0,
+     locked_until    TEXT,
+     created_at      TEXT NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS employees (
+     id            BIGSERIAL PRIMARY KEY,
+     first_name    TEXT NOT NULL,
+     last_name     TEXT NOT NULL,
+     name_key      TEXT NOT NULL UNIQUE,
+     password_hash TEXT NOT NULL,
+     created_at    TEXT NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS sites (
+     id         BIGSERIAL PRIMARY KEY,
+     name       TEXT NOT NULL,
+     lat        DOUBLE PRECISION NOT NULL,
+     lng        DOUBLE PRECISION NOT NULL,
+     radius_m   INTEGER NOT NULL DEFAULT 120,
+     status     TEXT NOT NULL DEFAULT 'active',
+     created_at TEXT NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS attendances (
+     id          BIGSERIAL PRIMARY KEY,
+     employee_id BIGINT NOT NULL REFERENCES employees(id),
+     site_id     BIGINT NOT NULL REFERENCES sites(id),
+     entry_at    TEXT NOT NULL,
+     exit_at     TEXT,
+     created_at  TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_att_emp   ON attendances(employee_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_att_entry ON attendances(entry_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_att_open  ON attendances(employee_id, exit_at)`,
+];
 
 /** Create tables/indexes if missing (idempotent). Safe to run on every boot. */
 export async function initSchema() {
@@ -110,8 +112,9 @@ export async function initSchema() {
     );
     return;
   }
-  const p = getPool();
-  await p.query(SCHEMA); // multi-statement DDL (no params → simple protocol)
+  for (const stmt of SCHEMA_STATEMENTS) {
+    await q(stmt);
+  }
 }
 
 /**

@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DateTime } from "luxon";
 
-import { q, one, seedAdmin, nameKey, initSchema } from "./src/db.js";
+import { q, one, seedAdmin, nameKey, initSchema, DB_CONFIGURED } from "./src/db.js";
 import {
   issueSession,
   clearSession,
@@ -192,6 +192,41 @@ app.get("/api/me", (req, res) => {
   const s = readSession(req);
   if (!s) return res.json({ authenticated: false });
   res.json({ authenticated: true, role: s.role, name: s.name });
+});
+
+// Diagnostic + self-heal endpoint. Open /api/health in the browser: it reports
+// exactly where the database setup is failing, and if the tables are missing it
+// tries to (re)create them and seed the admin. Safe to call repeatedly.
+app.get("/api/health", async (req, res) => {
+  const out = { db_configured: DB_CONFIGURED };
+  if (!DB_CONFIGURED) {
+    return res.json({ ...out, ok: false, hint: "DATABASE_URL non impostata su questo ambiente." });
+  }
+  try {
+    await q("SELECT 1");
+    out.connection = "ok";
+  } catch (e) {
+    return res.json({ ...out, ok: false, stage: "connection", error: e.message, code: e.code });
+  }
+  try {
+    let t = await one("SELECT to_regclass('public.admins') AS admins");
+    if (!t.admins) {
+      out.tables = "missing → creo ora";
+      await initSchema();
+      await seedAdmin({
+        username: process.env.ADMIN_USERNAME,
+        password: process.env.ADMIN_PASSWORD,
+      });
+      t = await one("SELECT to_regclass('public.admins') AS admins");
+    }
+    out.tables = t.admins ? "ok" : "ancora mancanti";
+    const a = await one("SELECT count(*)::int AS n FROM admins");
+    out.admin_rows = a.n;
+    out.admin_configured = !!(process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD);
+  } catch (e) {
+    return res.json({ ...out, ok: false, stage: "schema", error: e.message, code: e.code });
+  }
+  res.json({ ...out, ok: out.tables === "ok" && out.admin_rows > 0 });
 });
 
 // ================= EMPLOYEE =================
