@@ -349,26 +349,29 @@ app.get("/api/admin/sites", requireAdmin, h(async (req, res) => {
 
 function validateSite(body) {
   const name = clean(body?.name);
+  const address = clean(body?.address) || null;
   const lat = Number(body?.lat);
   const lng = Number(body?.lng);
   const radius = Math.round(Number(body?.radius_m));
   const status = body?.status === "closed" ? "closed" : "active";
   if (!name) return { error: "Il nome del cantiere è obbligatorio." };
-  if (!isNum(lat) || lat < -90 || lat > 90) return { error: "Latitudine non valida." };
-  if (!isNum(lng) || lng < -180 || lng > 180) return { error: "Longitudine non valida." };
+  if (!isNum(lat) || lat < -90 || lat > 90)
+    return { error: "Posizione non valida: cerca l'indirizzo o inserisci le coordinate." };
+  if (!isNum(lng) || lng < -180 || lng > 180)
+    return { error: "Posizione non valida: cerca l'indirizzo o inserisci le coordinate." };
   if (!isNum(radius) || radius < 10 || radius > 5000)
     return { error: "Il raggio deve essere tra 10 e 5000 metri." };
-  return { value: { name, lat, lng, radius, status } };
+  return { value: { name, address, lat, lng, radius, status } };
 }
 
 app.post("/api/admin/sites", requireAdmin, h(async (req, res) => {
   const v = validateSite(req.body);
   if (v.error) return res.status(400).json({ error: v.error });
-  const { name, lat, lng, radius, status } = v.value;
+  const { name, address, lat, lng, radius, status } = v.value;
   const row = await one(
-    `INSERT INTO sites (name, lat, lng, radius_m, status, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [name, lat, lng, radius, status, nowIso()]
+    `INSERT INTO sites (name, address, lat, lng, radius_m, status, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [name, address, lat, lng, radius, status, nowIso()]
   );
   res.json({ ok: true, id: row.id });
 }));
@@ -379,10 +382,10 @@ app.put("/api/admin/sites/:id", requireAdmin, h(async (req, res) => {
   if (!exists) return res.status(404).json({ error: "Cantiere non trovato." });
   const v = validateSite(req.body);
   if (v.error) return res.status(400).json({ error: v.error });
-  const { name, lat, lng, radius, status } = v.value;
+  const { name, address, lat, lng, radius, status } = v.value;
   await q(
-    "UPDATE sites SET name = $1, lat = $2, lng = $3, radius_m = $4, status = $5 WHERE id = $6",
-    [name, lat, lng, radius, status, id]
+    "UPDATE sites SET name = $1, address = $2, lat = $3, lng = $4, radius_m = $5, status = $6 WHERE id = $7",
+    [name, address, lat, lng, radius, status, id]
   );
   res.json({ ok: true });
 }));

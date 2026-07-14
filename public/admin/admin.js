@@ -15,6 +15,7 @@ const I = {
   clock: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
   users: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   pin: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  search: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>`,
   menu: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>`,
   empty: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V8l6-4 6 4v13"/></svg>`,
 };
@@ -306,7 +307,10 @@ async function loadSites() {
   const rows = sites.map((s) => `
     <tr>
       <td class="t-strong">${escapeHTML(s.name)}</td>
-      <td class="t-mono muted">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</td>
+      <td>
+        <div>${s.address ? escapeHTML(s.address) : '<span class="muted">—</span>'}</div>
+        <div class="t-mono muted" style="font-size:var(--fs-xs)">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>
+      </td>
       <td class="t-mono">${s.radius_m} m</td>
       <td>${s.status === "active" ? '<span class="badge badge--in badge--dot">Attivo</span>' : '<span class="badge badge--closed badge--dot">Chiuso</span>'}</td>
       <td class="t-right"><button class="btn btn--ghost" data-edit="${s.id}">${I.edit} Modifica</button></td>
@@ -315,7 +319,7 @@ async function loadSites() {
     <div class="panel">
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>Cantiere</th><th>Coordinate GPS</th><th>Raggio</th><th>Stato</th><th></th></tr></thead>
+          <thead><tr><th>Cantiere</th><th>Indirizzo</th><th>Raggio</th><th>Stato</th><th></th></tr></thead>
           <tbody>${rows || `<tr><td colspan="5"><div class="empty-row">${I.empty}<div>Nessun cantiere. Creane uno per iniziare.</div></div></td></tr>`}</tbody>
         </table>
       </div>
@@ -325,32 +329,90 @@ async function loadSites() {
   );
 }
 
+// ---- Geocoding via OpenStreetMap / Nominatim (client-side: uses the admin's
+// own IP, no API key, avoids cloud-IP rate limits). ----
+async function geocodeSearch(query) {
+  const url =
+    "https://nominatim.openstreetmap.org/search?" +
+    new URLSearchParams({
+      q: query,
+      format: "jsonv2",
+      limit: "6",
+      countrycodes: "it",
+      "accept-language": "it",
+    });
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  return (Array.isArray(data) ? data : [])
+    .map((d) => ({ label: d.display_name, lat: parseFloat(d.lat), lng: parseFloat(d.lon) }))
+    .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng));
+}
+async function reverseGeocode(lat, lng) {
+  try {
+    const url =
+      "https://nominatim.openstreetmap.org/reverse?" +
+      new URLSearchParams({ lat, lon: lng, format: "jsonv2", "accept-language": "it" });
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return (await res.json()).display_name || null;
+  } catch {
+    return null;
+  }
+}
+
 function openSiteModal(site = null) {
   const editing = !!site;
-  const s = site || { name: "", lat: "", lng: "", radius_m: 120, status: "active" };
+  const s = site || { name: "", address: "", lat: "", lng: "", radius_m: 150, status: "active" };
+
+  // Current chosen location. Prefilled when editing an existing site.
+  const picked = {
+    lat: isFinite(parseFloat(s.lat)) ? parseFloat(s.lat) : null,
+    lng: isFinite(parseFloat(s.lng)) ? parseFloat(s.lng) : null,
+    address: s.address || null,
+  };
+
   const scrim = document.createElement("div");
   scrim.className = "modal-scrim";
   scrim.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal__head">
         <h3>${editing ? "Modifica cantiere" : "Nuovo cantiere"}</h3>
-        <p>Posizione e raggio determinano dove i dipendenti possono timbrare.</p>
+        <p>Cerca l'indirizzo del cantiere: lo troviamo su mappa e i dipendenti potranno timbrare entro il raggio.</p>
       </div>
       <div class="modal__body">
-        <div class="field"><label>Nome cantiere</label><input class="input" id="m_name" value="${escapeHTML(String(s.name))}" placeholder="Es. Villa Bianchi — Via Roma 12"></div>
-        <div class="grid-2">
-          <div class="field"><label>Latitudine</label><input class="input" id="m_lat" inputmode="decimal" value="${s.lat}" placeholder="45.4642"></div>
-          <div class="field"><label>Longitudine</label><input class="input" id="m_lng" inputmode="decimal" value="${s.lng}" placeholder="9.1900"></div>
+        <div class="field"><label>Nome cantiere</label><input class="input" id="m_name" value="${escapeHTML(String(s.name))}" placeholder="Es. Villa Bianchi"></div>
+
+        <div class="field">
+          <label>Indirizzo del cantiere</label>
+          <div class="geo-wrap">
+            <span class="geo-ic">${I.search}</span>
+            <input class="input geo-input" id="m_addr" autocomplete="off" placeholder="Via, numero civico, città…">
+            <div class="geo-results" id="m_results" hidden></div>
+          </div>
+          <div class="hint">Scrivi l'indirizzo e scegli dal menu. Funziona anche con case private di cui non conosci le coordinate.</div>
         </div>
-        <button class="btn btn--ghost" id="useMyPos" type="button">${I.pin} Usa la mia posizione attuale</button>
-        <div class="field"><label>Raggio di tolleranza (metri)</label><input class="input" id="m_radius" inputmode="numeric" value="${s.radius_m}"><div class="hint">Consigliato 100–150 m: il GPS non è preciso al metro.</div></div>
+
+        <div class="geo-confirmed" id="m_confirmed" hidden></div>
+
+        <div class="field"><label>Raggio di tolleranza (metri)</label><input class="input" id="m_radius" inputmode="numeric" value="${s.radius_m}"><div class="hint">Consigliato 150 m: il GPS non è preciso al metro.</div></div>
+
         <div class="field"><label>Stato</label>
           <div class="status-toggle" id="m_status">
             <button type="button" data-s="active" class="${s.status === "active" ? "on-active" : ""}">Attivo</button>
             <button type="button" data-s="closed" class="${s.status === "closed" ? "on-closed" : ""}">Chiuso</button>
           </div>
         </div>
-        <div class="map-hint">${I.pin}<div>Suggerimento: apri Google Maps sul cantiere, tieni premuto sul punto e copia le coordinate (lat, lng).</div></div>
+
+        <details class="geo-advanced">
+          <summary>Opzioni avanzate: coordinate manuali</summary>
+          <div class="grid-2" style="margin-top:14px">
+            <div class="field"><label>Latitudine</label><input class="input" id="m_lat" inputmode="decimal" value="${picked.lat ?? ""}" placeholder="45.4642"></div>
+            <div class="field"><label>Longitudine</label><input class="input" id="m_lng" inputmode="decimal" value="${picked.lng ?? ""}" placeholder="9.1900"></div>
+          </div>
+          <button class="btn btn--ghost" id="useMyPos" type="button" style="margin-top:12px">${I.pin} Usa la mia posizione attuale</button>
+          <div class="hint" style="margin-top:8px">Usa questa sezione solo se sei fisicamente sul cantiere o conosci già le coordinate.</div>
+        </details>
       </div>
       <div class="modal__foot">
         <button class="btn btn--subtle" id="m_cancel">Annulla</button>
@@ -359,8 +421,104 @@ function openSiteModal(site = null) {
     </div>`;
   document.body.appendChild(scrim);
 
+  const $ = (sel) => scrim.querySelector(sel);
+  const addrInput = $("#m_addr");
+  const results = $("#m_results");
+  const confirmed = $("#m_confirmed");
+  const latInput = $("#m_lat");
+  const lngInput = $("#m_lng");
+  const nameInput = $("#m_name");
+
+  function renderConfirmed() {
+    if (picked.lat == null || picked.lng == null) {
+      confirmed.hidden = true;
+      confirmed.innerHTML = "";
+      return;
+    }
+    const maps = `https://www.google.com/maps?q=${picked.lat},${picked.lng}`;
+    confirmed.hidden = false;
+    confirmed.innerHTML = `
+      <span class="gc-pin">${I.pin}</span>
+      <div class="gc-body">
+        <div class="gc-addr">${escapeHTML(picked.address || "Posizione impostata manualmente")}</div>
+        <div class="gc-coords t-mono">${picked.lat.toFixed(5)}, ${picked.lng.toFixed(5)} · <a href="${maps}" target="_blank" rel="noopener">Vedi su mappa</a></div>
+      </div>
+      <span class="gc-ok">✓</span>`;
+  }
+  function setPicked(lat, lng, address) {
+    picked.lat = lat; picked.lng = lng; picked.address = address || null;
+    latInput.value = lat.toFixed(6);
+    lngInput.value = lng.toFixed(6);
+    renderConfirmed();
+  }
+  renderConfirmed();
+
+  // ---- address autocomplete (debounced) ----
+  function hideResults() { results.hidden = true; results.innerHTML = ""; }
+  function showResults(html) { results.hidden = false; results.innerHTML = html; }
+  let debounce;
+  let lastQuery = "";
+  addrInput.addEventListener("input", () => {
+    const query = addrInput.value.trim();
+    clearTimeout(debounce);
+    if (query.length < 3) { hideResults(); return; }
+    showResults(`<div class="geo-loading"><span class="spinner spinner--ink"></span> Cerco l'indirizzo…</div>`);
+    debounce = setTimeout(async () => {
+      lastQuery = query;
+      try {
+        const items = await geocodeSearch(query);
+        if (query !== lastQuery) return; // superseded by newer keystrokes
+        if (!items.length) {
+          showResults(`<div class="geo-empty">Nessun indirizzo trovato. Prova a essere più preciso o usa le coordinate manuali.</div>`);
+          return;
+        }
+        showResults(
+          items
+            .map(
+              (it, i) =>
+                `<button type="button" class="geo-item" data-i="${i}">${I.pin}<span>${escapeHTML(it.label)}</span></button>`
+            )
+            .join("")
+        );
+        results.querySelectorAll(".geo-item").forEach((el) =>
+          el.addEventListener("click", () => {
+            const it = items[Number(el.dataset.i)];
+            setPicked(it.lat, it.lng, it.label);
+            addrInput.value = "";
+            hideResults();
+            if (!nameInput.value.trim()) {
+              // Suggest a readable name: "Via Roma 12" rather than just "12".
+              const parts = it.label.split(",").map((p) => p.trim());
+              nameInput.value =
+                /^\d+[a-z]?$/i.test(parts[0]) && parts[1] ? `${parts[1]} ${parts[0]}` : parts[0];
+            }
+          })
+        );
+      } catch {
+        showResults(`<div class="geo-empty">Ricerca non disponibile ora. Inserisci le coordinate manualmente (opzioni avanzate).</div>`);
+      }
+    }, 600);
+  });
+  document.addEventListener("click", (e) => {
+    if (!results.hidden && !scrim.querySelector(".geo-wrap").contains(e.target)) hideResults();
+  });
+
+  // ---- manual coordinate edits keep `picked` in sync ----
+  function syncManual() {
+    const la = parseFloat(latInput.value);
+    const ln = parseFloat(lngInput.value);
+    if (isFinite(la) && isFinite(ln)) {
+      picked.lat = la; picked.lng = ln;
+      picked.address = picked.address; // keep any address label
+      renderConfirmed();
+    }
+  }
+  latInput.addEventListener("input", () => { picked.address = null; syncManual(); });
+  lngInput.addEventListener("input", () => { picked.address = null; syncManual(); });
+
+  // ---- status toggle ----
   let status = s.status;
-  const statusBox = scrim.querySelector("#m_status");
+  const statusBox = $("#m_status");
   statusBox.querySelectorAll("button").forEach((b) =>
     b.addEventListener("click", () => {
       status = b.dataset.s;
@@ -369,35 +527,42 @@ function openSiteModal(site = null) {
     })
   );
 
-  scrim.querySelector("#useMyPos").addEventListener("click", (e) => {
+  // ---- use my current position (with reverse geocode for a friendly label) ----
+  $("#useMyPos").addEventListener("click", (e) => {
     const btn = e.currentTarget;
     if (!navigator.geolocation) { toast("GPS non disponibile su questo dispositivo.", "err"); return; }
-    btn.disabled = true; btn.innerHTML = `<span class="spinner spinner--ink"></span> Rilevo…`;
+    btn.disabled = true; const orig = btn.innerHTML; btn.innerHTML = `<span class="spinner spinner--ink"></span> Rilevo…`;
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        scrim.querySelector("#m_lat").value = pos.coords.latitude.toFixed(6);
-        scrim.querySelector("#m_lng").value = pos.coords.longitude.toFixed(6);
-        btn.disabled = false; btn.innerHTML = `${I.pin} Usa la mia posizione attuale`;
-        toast("Posizione inserita.", "ok");
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const addr = await reverseGeocode(latitude, longitude);
+        setPicked(latitude, longitude, addr);
+        btn.disabled = false; btn.innerHTML = orig;
+        toast("Posizione attuale inserita.", "ok");
       },
-      () => { btn.disabled = false; btn.innerHTML = `${I.pin} Usa la mia posizione attuale`; toast("Impossibile leggere la posizione.", "err"); },
+      () => { btn.disabled = false; btn.innerHTML = orig; toast("Impossibile leggere la posizione.", "err"); },
       { enableHighAccuracy: true, timeout: 12000 }
     );
   });
 
   const close = () => scrim.remove();
-  scrim.querySelector("#m_cancel").addEventListener("click", close);
+  $("#m_cancel").addEventListener("click", close);
   scrim.addEventListener("click", (e) => { if (e.target === scrim) close(); });
 
-  scrim.querySelector("#m_save").addEventListener("click", async () => {
+  $("#m_save").addEventListener("click", async () => {
+    if (picked.lat == null || picked.lng == null) {
+      toast("Cerca l'indirizzo del cantiere (o inserisci le coordinate).", "err");
+      return;
+    }
     const body = {
-      name: scrim.querySelector("#m_name").value.trim(),
-      lat: parseFloat(scrim.querySelector("#m_lat").value),
-      lng: parseFloat(scrim.querySelector("#m_lng").value),
-      radius_m: parseInt(scrim.querySelector("#m_radius").value, 10),
+      name: nameInput.value.trim(),
+      address: picked.address,
+      lat: picked.lat,
+      lng: picked.lng,
+      radius_m: parseInt($("#m_radius").value, 10),
       status,
     };
-    const btn = scrim.querySelector("#m_save");
+    const btn = $("#m_save");
     btn.disabled = true; const orig = btn.innerHTML; btn.innerHTML = `<span class="spinner"></span>`;
     const r = editing
       ? await api(`/api/admin/sites/${site.id}`, { method: "PUT", body })

@@ -84,12 +84,15 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS sites (
      id         BIGSERIAL PRIMARY KEY,
      name       TEXT NOT NULL,
+     address    TEXT,
      lat        DOUBLE PRECISION NOT NULL,
      lng        DOUBLE PRECISION NOT NULL,
-     radius_m   INTEGER NOT NULL DEFAULT 120,
+     radius_m   INTEGER NOT NULL DEFAULT 150,
      status     TEXT NOT NULL DEFAULT 'active',
      created_at TEXT NOT NULL
    )`,
+  // Migration for databases created before the address field existed.
+  `ALTER TABLE sites ADD COLUMN IF NOT EXISTS address TEXT`,
   `CREATE TABLE IF NOT EXISTS attendances (
      id          BIGSERIAL PRIMARY KEY,
      employee_id BIGINT NOT NULL REFERENCES employees(id),

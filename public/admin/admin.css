@@ -163,6 +163,43 @@ table.data tbody tr:hover { background: #fafcfb; }
 .hint { font-size: var(--fs-xs); color: var(--ink-3); }
 .map-hint { background: var(--green-50); color: var(--green-800); border-radius: var(--r-md); padding: 12px 14px; font-size: var(--fs-xs); font-weight: 550; display:flex; gap:10px; }
 
+/* ---------------- Address geocoding ---------------- */
+.geo-wrap { position: relative; }
+.geo-ic { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--ink-3); pointer-events: none; }
+.geo-input { padding-left: 42px; }
+.geo-results {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--sh-lg); overflow: hidden; max-height: 280px; overflow-y: auto;
+}
+.geo-item {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+  padding: 12px 14px; border: 0; background: transparent; cursor: pointer;
+  font-size: var(--fs-sm); color: var(--ink); border-bottom: 1px solid var(--line-2); line-height: 1.35;
+}
+.geo-item:last-child { border-bottom: 0; }
+.geo-item:hover { background: var(--green-50); }
+.geo-item svg { flex: none; margin-top: 2px; color: var(--green-700); }
+.geo-loading, .geo-empty { padding: 14px; font-size: var(--fs-sm); color: var(--ink-3); display: flex; align-items: center; gap: 10px; }
+
+.geo-confirmed {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--green-50); border: 1px solid var(--green-100);
+  border-radius: var(--r-md); padding: 12px 14px;
+}
+.geo-confirmed .gc-pin { color: var(--green-700); flex: none; display: flex; }
+.geo-confirmed .gc-body { flex: 1; min-width: 0; }
+.geo-confirmed .gc-addr { font-weight: 650; font-size: var(--fs-sm); color: var(--green-800); }
+.geo-confirmed .gc-coords { font-size: var(--fs-xs); color: var(--ink-2); margin-top: 2px; }
+.geo-confirmed .gc-coords a { font-weight: 600; }
+.geo-confirmed .gc-ok { color: var(--green-700); font-weight: 800; flex: none; }
+
+.geo-advanced { border-top: 1px solid var(--line); padding-top: 14px; }
+.geo-advanced summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); list-style: none; }
+.geo-advanced summary::-webkit-details-marker { display: none; }
+.geo-advanced summary::before { content: "▸ "; color: var(--ink-3); }
+.geo-advanced[open] summary::before { content: "▾ "; }
+
 .status-toggle { display: flex; gap: 8px; }
 .status-toggle button { flex: 1; padding: 11px; border-radius: var(--r-md); border: 1.5px solid var(--line); background: var(--surface); font-weight: 650; cursor: pointer; color: var(--ink-2); }
 .status-toggle button.on-active { border-color: var(--green); background: var(--green-50); color: var(--green-800); }
