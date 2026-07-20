@@ -171,6 +171,18 @@ table.data tbody tr:hover { background: #fafcfb; }
 .hint { font-size: var(--fs-xs); color: var(--ink-3); }
 .map-hint { background: var(--green-50); color: var(--green-800); border-radius: var(--r-md); padding: 12px 14px; font-size: var(--fs-xs); font-weight: 550; display:flex; gap:10px; }
 
+/* ---------------- Location method tabs ---------------- */
+.method-tabs { display: flex; gap: 6px; background: var(--line-2); padding: 4px; border-radius: var(--r-md); }
+.method-tabs button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; background: transparent; padding: 10px 8px; border-radius: 10px;
+  font-weight: 650; font-size: var(--fs-sm); color: var(--ink-2); cursor: pointer;
+  transition: all .15s var(--ease);
+}
+.method-tabs button.is-active { background: var(--surface); color: var(--green-800); box-shadow: var(--sh-sm); }
+.method-tabs button svg { width: 16px; height: 16px; flex: none; }
+.method-pane { margin-top: 2px; }
+
 /* ---------------- Address geocoding ---------------- */
 .geo-wrap { position: relative; }
 .geo-ic { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--ink-3); pointer-events: none; }
@@ -195,6 +207,7 @@ table.data tbody tr:hover { background: #fafcfb; }
   background: var(--green-50); border: 1px solid var(--green-100);
   border-radius: var(--r-md); padding: 12px 14px;
 }
+.geo-confirmed[hidden] { display: none; }
 .geo-confirmed .gc-pin { color: var(--green-700); flex: none; display: flex; }
 .geo-confirmed .gc-body { flex: 1; min-width: 0; }
 .geo-confirmed .gc-addr { font-weight: 650; font-size: var(--fs-sm); color: var(--green-800); }

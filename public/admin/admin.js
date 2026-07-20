@@ -413,6 +413,9 @@ function openSiteModal(site = null) {
     lng: isFinite(parseFloat(s.lng)) ? parseFloat(s.lng) : null,
     address: s.address || null,
   };
+  // Default to the coordinates method when editing a site that has coordinates
+  // but no address (e.g. a wooded site set purely by GPS).
+  const initialMethod = editing && picked.address == null && picked.lat != null ? "coords" : "address";
 
   const scrim = document.createElement("div");
   scrim.className = "modal-scrim";
@@ -420,19 +423,35 @@ function openSiteModal(site = null) {
     <div class="modal" role="dialog" aria-modal="true">
       <div class="modal__head">
         <h3>${editing ? "Modifica cantiere" : "Nuovo cantiere"}</h3>
-        <p>Cerca l'indirizzo del cantiere: lo troviamo su mappa e i dipendenti potranno timbrare entro il raggio.</p>
+        <p>Trova il cantiere per indirizzo, oppure impostalo con le coordinate GPS (utile dove non c'è una via, come boschi o campagna).</p>
       </div>
       <div class="modal__body">
         <div class="field"><label>Nome cantiere</label><input class="input" id="m_name" value="${escapeHTML(String(s.name))}" placeholder="Es. Villa Bianchi"></div>
 
         <div class="field">
-          <label>Indirizzo del cantiere</label>
+          <label>Posizione del cantiere</label>
+          <div class="method-tabs" id="m_method">
+            <button type="button" data-m="address" class="${initialMethod === "address" ? "is-active" : ""}">${I.search} Cerca indirizzo</button>
+            <button type="button" data-m="coords" class="${initialMethod === "coords" ? "is-active" : ""}">${I.pin} Coordinate GPS</button>
+          </div>
+        </div>
+
+        <div class="method-pane" id="pane_address" ${initialMethod === "address" ? "" : "hidden"}>
           <div class="geo-wrap">
             <span class="geo-ic">${I.search}</span>
             <input class="input geo-input" id="m_addr" autocomplete="off" placeholder="Via, numero civico, città…">
             <div class="geo-results" id="m_results" hidden></div>
           </div>
-          <div class="hint">Scrivi l'indirizzo e scegli dal menu. Funziona anche con case private di cui non conosci le coordinate.</div>
+          <div class="hint">Scrivi l'indirizzo e scegli dal menu: troviamo il punto GPS in automatico.</div>
+        </div>
+
+        <div class="method-pane" id="pane_coords" ${initialMethod === "coords" ? "" : "hidden"}>
+          <div class="grid-2">
+            <div class="field"><label>Latitudine</label><input class="input" id="m_lat" inputmode="decimal" value="${picked.lat ?? ""}" placeholder="45.4642"></div>
+            <div class="field"><label>Longitudine</label><input class="input" id="m_lng" inputmode="decimal" value="${picked.lng ?? ""}" placeholder="9.1900"></div>
+          </div>
+          <button class="btn btn--ghost btn--block" id="useMyPos" type="button" style="margin-top:12px">${I.pin} Usa la mia posizione attuale</button>
+          <div class="hint" style="margin-top:8px">Ideale per zone senza indirizzo (boschi, campagna): bastano il punto GPS e il raggio. Puoi anche incollare le coordinate da Google Maps.</div>
         </div>
 
         <div class="geo-confirmed" id="m_confirmed" hidden></div>
@@ -445,16 +464,6 @@ function openSiteModal(site = null) {
             <button type="button" data-s="closed" class="${s.status === "closed" ? "on-closed" : ""}">Chiuso</button>
           </div>
         </div>
-
-        <details class="geo-advanced">
-          <summary>Opzioni avanzate: coordinate manuali</summary>
-          <div class="grid-2" style="margin-top:14px">
-            <div class="field"><label>Latitudine</label><input class="input" id="m_lat" inputmode="decimal" value="${picked.lat ?? ""}" placeholder="45.4642"></div>
-            <div class="field"><label>Longitudine</label><input class="input" id="m_lng" inputmode="decimal" value="${picked.lng ?? ""}" placeholder="9.1900"></div>
-          </div>
-          <button class="btn btn--ghost" id="useMyPos" type="button" style="margin-top:12px">${I.pin} Usa la mia posizione attuale</button>
-          <div class="hint" style="margin-top:8px">Usa questa sezione solo se sei fisicamente sul cantiere o conosci già le coordinate.</div>
-        </details>
       </div>
       <div class="modal__foot">
         <button class="btn btn--subtle" id="m_cancel">Annulla</button>
@@ -557,6 +566,18 @@ function openSiteModal(site = null) {
   }
   latInput.addEventListener("input", () => { picked.address = null; syncManual(); });
   lngInput.addEventListener("input", () => { picked.address = null; syncManual(); });
+
+  // ---- method tabs (address vs coordinates) ----
+  const methodBox = $("#m_method");
+  methodBox.querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => {
+      methodBox.querySelectorAll("button").forEach((x) => x.classList.remove("is-active"));
+      b.classList.add("is-active");
+      $("#pane_address").hidden = b.dataset.m !== "address";
+      $("#pane_coords").hidden = b.dataset.m !== "coords";
+      hideResults();
+    })
+  );
 
   // ---- status toggle ----
   let status = s.status;

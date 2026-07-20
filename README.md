@@ -80,12 +80,14 @@ Il file `.env` **non** viene versionato (è in `.gitignore`). Contiene:
   mese, lo storico resta), logout.
 
 ### Lato admin (PC)
-- **Cantieri**: elenco, creazione e modifica. Si inserisce l'**indirizzo** del
-  cantiere e viene cercato su mappa (OpenStreetMap/Nominatim) trovando in
-  automatico le coordinate GPS — utile per case private di cui non si conoscono
-  latitudine/longitudine. Restano disponibili il raggio (default 150 m), lo
-  stato attivo/chiuso e, tra le opzioni avanzate, l'inserimento manuale delle
-  coordinate e "usa la mia posizione".
+- **Cantieri**: elenco, creazione e modifica. La posizione si imposta in due
+  modi, a scelta:
+  - **Cerca indirizzo** — viene cercato su mappa (OpenStreetMap/Nominatim) e le
+    coordinate GPS si ricavano in automatico (utile per case private).
+  - **Coordinate GPS** — si inseriscono latitudine/longitudine a mano o con
+    "usa la mia posizione attuale"; le coordinate + il raggio bastano come unico
+    riferimento, ideale per cantieri in zone senza indirizzo (boschi, campagna).
+  Sono sempre presenti il raggio (default 150 m) e lo stato attivo/chiuso.
 - **Vista giornaliera**: chi è entrato, a che ora, in quale cantiere, entrate e
   uscite, ore per turno.
 - **Dashboard**: ore totali, turni, ore per giorno / per dipendente / per
