@@ -248,11 +248,13 @@ async function pageDay() {
       <div><h1>Vista giornaliera</h1><p>Chi è entrato, a che ora e in quale cantiere.</p></div>
       <div class="head-actions">
         <div class="field"><input type="date" class="input" id="dayPicker" value="${dayDate}"></div>
+        <button class="btn btn--ghost" id="dayAdd">${I.plus} Aggiungi timbratura</button>
         <button class="btn btn--ghost" id="dayExport">${I.download} Esporta CSV</button>
       </div>
     </div>
     <div id="dayBody">${spin()}</div>`;
   document.getElementById("dayPicker").addEventListener("change", (e) => { dayDate = e.target.value; loadDay(); });
+  document.getElementById("dayAdd").addEventListener("click", () => openAttendanceModal({ mode: "add" }));
   document.getElementById("dayExport").addEventListener("click", () => { window.location = `/api/admin/export?date=${dayDate}`; });
   await loadDay();
 }
@@ -268,7 +270,10 @@ async function loadDay() {
       <td class="t-mono">${e.entry}</td>
       <td class="t-mono">${e.exit ? e.exit : '<span class="badge badge--open badge--dot">In corso</span>'}</td>
       <td class="t-mono t-right t-strong">${e.hms ? e.hms : "—"}</td>
-      <td class="t-right"><button class="icon-btn-sm" data-del="${e.id}" title="Elimina timbratura" aria-label="Elimina timbratura">${I.trash}</button></td>
+      <td class="t-right"><div class="row-actions">
+        <button class="icon-btn-sm" data-edit-att="${e.id}" title="Modifica orari" aria-label="Modifica orari">${I.edit}</button>
+        <button class="icon-btn-sm icon-btn-sm--danger" data-del="${e.id}" title="Elimina timbratura" aria-label="Elimina timbratura">${I.trash}</button>
+      </div></td>
     </tr>`).join("");
 
   body.innerHTML = `
@@ -288,6 +293,99 @@ async function loadDay() {
   body.querySelectorAll("[data-del]").forEach((btn) =>
     btn.addEventListener("click", () => deleteEntry(d.entries.find((e) => e.id === Number(btn.dataset.del))))
   );
+  body.querySelectorAll("[data-edit-att]").forEach((btn) =>
+    btn.addEventListener("click", () => openAttendanceModal({ mode: "edit", entry: d.entries.find((e) => e.id === Number(btn.dataset.editAtt)) }))
+  );
+}
+
+// Add or edit a shift's entry/exit times (admin only). Worked hours are derived
+// from these, so editing them updates the employee's totals automatically.
+async function openAttendanceModal({ mode, entry }) {
+  let employees = [], sites = [];
+  if (mode === "add") {
+    const [e, s] = await Promise.all([api("/api/admin/employees"), api("/api/admin/sites")]);
+    employees = e.data?.employees || [];
+    sites = s.data?.sites || [];
+    if (!employees.length) return toast("Nessun dipendente registrato: prima deve registrarsi almeno un dipendente.", "err");
+    if (!sites.length) return toast("Crea prima un cantiere.", "err");
+  }
+
+  const entryVal = mode === "edit" ? entry.entryLocal : `${dayDate}T08:00:00`;
+  const exitVal = mode === "edit" ? entry.exitLocal : `${dayDate}T17:00:00`;
+
+  const whoHtml =
+    mode === "add"
+      ? `<div class="grid-2">
+           <div class="field"><label>Dipendente</label>
+             <select class="input" id="a_emp">${employees.map((x) => `<option value="${x.id}">${escapeHTML(x.name)}</option>`).join("")}</select>
+           </div>
+           <div class="field"><label>Cantiere</label>
+             <select class="input" id="a_site">${sites.map((x) => `<option value="${x.id}">${escapeHTML(x.name)}</option>`).join("")}</select>
+           </div>
+         </div>`
+      : `<div class="att-fixed">
+           <div><span class="muted">Dipendente</span><b>${escapeHTML(entry.employee)}</b></div>
+           <div><span class="muted">Cantiere</span><b>${escapeHTML(entry.site)}</b></div>
+         </div>`;
+
+  const scrim = document.createElement("div");
+  scrim.className = "modal-scrim";
+  scrim.innerHTML = `
+    <div class="modal" style="max-width:500px" role="dialog" aria-modal="true">
+      <div class="modal__head">
+        <h3>${mode === "add" ? "Aggiungi timbratura" : "Modifica orari"}</h3>
+        <p>${mode === "add"
+          ? "Registra un turno per chi ha dimenticato di timbrare."
+          : "Correggi entrata e uscita: le ore lavorate si aggiornano di conseguenza."}</p>
+      </div>
+      <div class="modal__body">
+        ${whoHtml}
+        <div class="field"><label>Entrata</label><input type="datetime-local" step="1" class="input" id="a_entry" value="${entryVal}"></div>
+        <div class="field"><label>Uscita</label><input type="datetime-local" step="1" class="input" id="a_exit" value="${exitVal}"></div>
+        <div class="hint">Lascia vuota l'uscita se il turno è ancora aperto (non conta nelle ore finché non la imposti).</div>
+        <div class="att-preview" id="a_preview"></div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn btn--subtle" id="a_cancel">Annulla</button>
+        <button class="btn" id="a_save">${mode === "add" ? "Aggiungi" : "Salva modifiche"}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(scrim);
+
+  const $ = (s) => scrim.querySelector(s);
+  const entryInput = $("#a_entry");
+  const exitInput = $("#a_exit");
+  const preview = $("#a_preview");
+
+  function updatePreview() {
+    const ev = entryInput.value, xv = exitInput.value;
+    if (!ev) { preview.className = "att-preview"; preview.textContent = ""; return; }
+    if (!xv) { preview.className = "att-preview att-preview--open"; preview.innerHTML = "Turno aperto (nessuna uscita)"; return; }
+    const diff = (new Date(xv) - new Date(ev)) / 1000;
+    if (diff <= 0) { preview.className = "att-preview att-preview--err"; preview.textContent = "L'uscita deve essere successiva all'entrata."; return; }
+    preview.className = "att-preview att-preview--ok";
+    preview.innerHTML = `Ore lavorate: <b>${hms(diff)}</b>`;
+  }
+  entryInput.addEventListener("input", updatePreview);
+  exitInput.addEventListener("input", updatePreview);
+  updatePreview();
+
+  const close = () => scrim.remove();
+  $("#a_cancel").addEventListener("click", close);
+  scrim.addEventListener("click", (e) => { if (e.target === scrim) close(); });
+
+  $("#a_save").addEventListener("click", async () => {
+    const body = { entry_at: entryInput.value, exit_at: exitInput.value };
+    if (mode === "add") { body.employee_id = Number($("#a_emp").value); body.site_id = Number($("#a_site").value); }
+    const btn = $("#a_save");
+    btn.disabled = true; const orig = btn.innerHTML; btn.innerHTML = `<span class="spinner"></span>`;
+    const r = mode === "add"
+      ? await api("/api/admin/attendance", { method: "POST", body })
+      : await api(`/api/admin/attendance/${entry.id}`, { method: "PUT", body });
+    btn.disabled = false; btn.innerHTML = orig;
+    if (r.ok) { close(); toast(mode === "add" ? "Timbratura aggiunta." : "Orari aggiornati.", "ok"); loadDay(); }
+    else toast(r.data?.error || "Salvataggio non riuscito.", "err");
+  });
 }
 
 async function deleteEntry(entry) {

@@ -24,6 +24,8 @@ import {
   romeClockSeconds,
   romeDate,
   todayRome,
+  romeLocalToUtcIso,
+  romeLocalInput,
   ZONE,
 } from "./src/time.js";
 
@@ -416,6 +418,9 @@ app.get("/api/admin/day", requireAdmin, h(async (req, res) => {
       open: !r.exit_at,
       seconds: sec,
       hms: r.exit_at ? hms(sec) : null,
+      // Rome-local values for the admin edit form (datetime-local inputs).
+      entryLocal: romeLocalInput(r.entry_at),
+      exitLocal: r.exit_at ? romeLocalInput(r.exit_at) : "",
     };
   });
   const totalSeconds = entries.reduce((a, e) => a + e.seconds, 0);
@@ -431,6 +436,65 @@ app.delete("/api/admin/attendance/:id", requireAdmin, h(async (req, res) => {
   const existing = await one("SELECT id FROM attendances WHERE id = $1", [id]);
   if (!existing) return res.status(404).json({ error: "Timbratura non trovata." });
   await q("DELETE FROM attendances WHERE id = $1", [id]);
+  res.json({ ok: true });
+}));
+
+// Employees list (for the manual-attendance form dropdown).
+app.get("/api/admin/employees", requireAdmin, h(async (req, res) => {
+  const rows = await q(
+    "SELECT id, first_name, last_name FROM employees ORDER BY LOWER(last_name), LOWER(first_name)"
+  );
+  res.json({ employees: rows.map((r) => ({ id: r.id, name: `${r.first_name} ${r.last_name}` })) });
+}));
+
+// Parse the Rome-local entry/exit times coming from the admin form.
+function parseShiftTimes(body) {
+  const entryLocal = clean(body?.entry_at);
+  const exitLocal = clean(body?.exit_at);
+  if (!entryLocal) return { error: "L'ora di entrata è obbligatoria." };
+  const entryIso = romeLocalToUtcIso(entryLocal);
+  if (!entryIso) return { error: "Ora di entrata non valida." };
+  let exitIso = null;
+  if (exitLocal) {
+    exitIso = romeLocalToUtcIso(exitLocal);
+    if (!exitIso) return { error: "Ora di uscita non valida." };
+    if (Date.parse(exitIso) <= Date.parse(entryIso))
+      return { error: "L'uscita deve essere successiva all'entrata." };
+  }
+  return { value: { entryIso, exitIso } };
+}
+
+// Add a shift manually (e.g. someone forgot to clock in entirely).
+app.post("/api/admin/attendance", requireAdmin, h(async (req, res) => {
+  const employeeId = Number(req.body?.employee_id);
+  const siteId = Number(req.body?.site_id);
+  const emp = await one("SELECT id FROM employees WHERE id = $1", [employeeId]);
+  if (!emp) return res.status(400).json({ error: "Seleziona un dipendente." });
+  const site = await one("SELECT id FROM sites WHERE id = $1", [siteId]);
+  if (!site) return res.status(400).json({ error: "Seleziona un cantiere." });
+  const p = parseShiftTimes(req.body);
+  if (p.error) return res.status(400).json({ error: p.error });
+  await q(
+    `INSERT INTO attendances (employee_id, site_id, entry_at, exit_at, created_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [employeeId, siteId, p.value.entryIso, p.value.exitIso, nowIso()]
+  );
+  res.json({ ok: true });
+}));
+
+// Edit an existing shift's entry/exit times (worked hours are recomputed from
+// these). Leaving the exit empty keeps the shift open.
+app.put("/api/admin/attendance/:id", requireAdmin, h(async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await one("SELECT id FROM attendances WHERE id = $1", [id]);
+  if (!existing) return res.status(404).json({ error: "Timbratura non trovata." });
+  const p = parseShiftTimes(req.body);
+  if (p.error) return res.status(400).json({ error: p.error });
+  await q("UPDATE attendances SET entry_at = $1, exit_at = $2 WHERE id = $3", [
+    p.value.entryIso,
+    p.value.exitIso,
+    id,
+  ]);
   res.json({ ok: true });
 }));
 

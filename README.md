@@ -89,7 +89,10 @@ Il file `.env` **non** viene versionato (è in `.gitignore`). Contiene:
     riferimento, ideale per cantieri in zone senza indirizzo (boschi, campagna).
   Sono sempre presenti il raggio (default 150 m) e lo stato attivo/chiuso.
 - **Vista giornaliera**: chi è entrato, a che ora, in quale cantiere, entrate e
-  uscite, ore per turno.
+  uscite, ore per turno. Da qui l'admin può **modificare** entrata/uscita di un
+  turno (le ore si ricalcolano), **aggiungere** un turno a mano (per chi ha
+  dimenticato di timbrare) ed **eliminare** timbrature errate. Ogni modifica si
+  riflette automaticamente nel totale ore del dipendente.
 - **Dashboard**: ore totali, turni, ore per giorno / per dipendente / per
   cantiere, con selettore di periodo.
 - **Export CSV** compatibile con Google Fogli (UTF-8 con BOM), per la giornata o

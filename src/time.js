@@ -64,3 +64,18 @@ export function romeClockSeconds(iso) {
 export function todayRome() {
   return DateTime.now().setZone(ZONE).toFormat("yyyy-MM-dd");
 }
+
+/**
+ * Convert a Rome-local wall-clock string (from a <input type=datetime-local>,
+ * e.g. "2026-07-21T14:30" or with seconds) to a UTC ISO string for storage.
+ * Returns null if the input can't be parsed.
+ */
+export function romeLocalToUtcIso(localStr) {
+  const dt = DateTime.fromISO(localStr, { zone: ZONE });
+  return dt.isValid ? dt.toUTC().toISO() : null;
+}
+
+/** Format a stored UTC ISO as a Rome-local value for a datetime-local input. */
+export function romeLocalInput(iso) {
+  return iso ? toRome(iso).toFormat("yyyy-MM-dd'T'HH:mm:ss") : "";
+}

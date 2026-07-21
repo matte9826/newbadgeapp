@@ -133,13 +133,26 @@ table.data tbody tr:hover { background: #fafcfb; }
 .t-mono { font-variant-numeric: tabular-nums; }
 .t-right { text-align: right; }
 
+.row-actions { display: inline-flex; gap: 6px; justify-content: flex-end; }
 .icon-btn-sm {
   width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface);
   color: var(--ink-3); cursor: pointer; transition: all .15s var(--ease);
 }
-.icon-btn-sm:hover { background: var(--danger-bg); border-color: #f3c9c3; color: var(--danger); }
+.icon-btn-sm:hover { background: var(--green-50); border-color: var(--green-100); color: var(--green-700); }
+.icon-btn-sm--danger:hover { background: var(--danger-bg); border-color: #f3c9c3; color: var(--danger); }
 .icon-btn-sm:active { transform: scale(0.92); }
+
+/* attendance add/edit modal bits */
+.att-fixed { display: flex; gap: 12px; }
+.att-fixed > div { flex: 1; background: var(--line-2); border-radius: var(--r-md); padding: 12px 14px; }
+.att-fixed span { display: block; font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; margin-bottom: 3px; }
+.att-fixed b { font-size: var(--fs-sm); }
+.att-preview { font-size: var(--fs-sm); font-weight: 650; padding: 11px 14px; border-radius: var(--r-md); }
+.att-preview:empty { display: none; }
+.att-preview--ok { background: var(--green-50); color: var(--green-800); }
+.att-preview--open { background: var(--warn-bg); color: var(--warn); }
+.att-preview--err { background: var(--danger-bg); color: var(--danger); }
 
 .empty-row { text-align: center; padding: 48px 20px; color: var(--ink-3); }
 .empty-row svg { opacity: .4; margin-bottom: 10px; }
